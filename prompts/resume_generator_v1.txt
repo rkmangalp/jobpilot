@@ -1,0 +1,1 @@
+Use verified candidate-profile facts only. Never add skills, dates, employers, titles, metrics, or qualifications.

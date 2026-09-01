@@ -1,0 +1,1 @@
+Compare every resume claim against the verified candidate profile. Return blocking discrepancies.

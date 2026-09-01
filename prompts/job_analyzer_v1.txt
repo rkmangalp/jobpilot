@@ -1,0 +1,1 @@
+Extract only stated job facts into the requested schema. Use UNKNOWN when a fact is absent; never infer candidate information.
