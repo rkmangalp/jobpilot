@@ -1,54 +1,152 @@
 # JobPilot
 
-JobPilot is a safety-first job-search assistant. It discovers and evaluates opportunities, prepares truthful application materials from a verified candidate profile, and always leaves final submission to the candidate.
+JobPilot is a safety-first assistant for backend engineering job applications. It helps collect job descriptions, evaluate fit against a verified candidate profile, prepare truthful application materials, and track progress while keeping the candidate in control of final submission.
 
-## Phase 1 status
+## What JobPilot does
 
-This repository contains the working Phase 1 foundation:
+```text
+Discover -> Analyze -> Match -> Tailor -> Prepare -> Notify -> Human review -> Manual final submission -> Track
+```
 
-- Go HTTP API with health, Prometheus-compatible metrics, dashboard, and candidate-profile CRUD.
-- An editable seeded candidate profile. Unknown personal, dates, work-authorization, and responsibility details are intentionally marked `TODO` rather than invented.
-- MySQL migration with the core JobPilot tables, foreign keys, duplicate fingerprint constraint, and query indexes.
-- A lightweight React dashboard served by the API. It presents dashboard metrics and lets a user complete the profile.
-- Versioned, file-based prompts and environment-variable configuration template.
-- Docker Compose with MySQL and backend health ordering.
+The current MVP supports the first part of that flow:
 
-Phase 2 is deliberately not implemented: job sources, analysis, matching, and application automation must follow after this foundation is deployed with persistent storage.
+- Store an editable candidate profile seeded with supplied, verified experience.
+- Add a job manually with its company, role, location, application URL, and description.
+- Detect duplicate jobs using a normalized SHA-256 fingerprint.
+- Extract known technical and architecture keywords from the description.
+- Calculate a transparent, deterministic match score from the verified profile.
+- Expose health and Prometheus-compatible metrics endpoints.
+- Prepare safe company-specific paths for future tailored resumes and cover letters.
 
-## Architecture decision
+## Safety principles
 
-The MVP is a modular Go monolith. The `candidate`, `dashboard`, and HTTP delivery code have separate package boundaries; the MySQL schema models the future jobs, matching, artifacts, audit, and application workflows. This minimizes operational complexity while retaining clean extraction points. Development currently uses an in-memory candidate repository so the API can be exercised without credentials; implementing the MySQL repository is the first Phase 2 persistence task.
+JobPilot never adds an employer, date, title, skill, achievement, certification, education record, or work-authorization answer unless it exists in your verified candidate profile.
+
+A job keyword missing from your current resume can be used only after you add it as a truthful, verified skill or experience item to the profile. Missing or ambiguous information remains `UNKNOWN` / `NEEDS_REVIEW`.
+
+The future browser workflow will never bypass CAPTCHA, MFA, bot detection, authentication, access restrictions, or rate limits. It will stop for unknown or high-risk questions and will never submit an application automatically.
+
+## Technology stack
+
+| Area | Technology |
+| --- | --- |
+| Backend API and workflow logic | Go |
+| Database schema | MySQL 8 |
+| Frontend | React (TypeScript migration planned) |
+| Local services | Docker Compose |
+| Future async workflows | Kafka |
+| Future caching and locks | Redis |
+| Browser preparation | Playwright (future, compliant use only) |
+| Observability | Structured logs and Prometheus metrics |
+
+JobPilot is a modular monolith: packages have clear boundaries today and can be extracted into services only when that complexity is justified.
+
+## Current implementation status
+
+### Completed
+
+- Candidate profile API with versioned in-memory development storage.
+- Seed profile for the supplied Tesla, American Express, Global Payments, and Cardinal Health context. Unverified details are intentionally marked `TODO`.
+- MySQL migration covering profiles, jobs, matches, applications, documents, audit records, notifications, and browser sessions.
+- Manual job ingestion API and duplicate detection.
+- Keyword analysis for common backend technologies and architecture terms.
+- Deterministic job matching with `STRONG APPLY`, `APPLY`, `REVIEW`, or `SKIP` recommendations.
+- Resume/cover-letter output-path preparation under a company-specific folder.
+- Go unit tests for candidate versioning, HTTP endpoints, duplicate fingerprints, job analysis, matching, and output paths.
+
+### Planned next
+
+- MySQL-backed repositories instead of development-only in-memory storage.
+- A proper React + TypeScript frontend build.
+- Configurable scoring weights and job-search preferences in the UI.
+- ATS-friendly DOCX/PDF resume and cover-letter generation with claim validation.
+- A local mock application site and Playwright field mapping.
+- Approved notification-provider integration, scheduling, Redis, and Kafka workflows.
 
 ## Run locally
 
-1. Copy `.env.example` to `.env` and populate only the credentials you choose to enable.
-2. Run `make dev` (or `go run ./backend/cmd/api`).
-3. Open `http://localhost:8080` and verify `http://localhost:8080/api/health`.
+### Run the API directly
 
-For the database-backed container stack, start Docker Desktop, then run `make docker-up`. MySQL applies `migrations/001_initial.sql` only when its volume is first created. Run `make docker-down` to stop it.
+1. Copy `.env.example` to `.env`.
+2. Update `RESUME_OUTPUT_DIR` if you want a different output location. Its default is `C:\Users\Rk\Documents\Resumes\_FT`.
+3. Run `make dev`.
+4. Open `http://localhost:8080`.
 
-## API
+Check the API:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/health
+```
+
+### Run with Docker and MySQL
+
+Start Docker Desktop, then run:
+
+```powershell
+make docker-up
+```
+
+MySQL runs `migrations/001_initial.sql` when its data volume is first created. Stop the stack with `make docker-down`.
+
+## API reference
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Liveness response |
 | GET | `/api/metrics` | Prometheus metrics |
 | GET | `/api/dashboard` | Dashboard metrics |
-| GET | `/api/candidate` | Read candidate profile |
-| PUT | `/api/candidate` | Replace candidate profile and create a new in-memory version |
+| GET | `/api/candidate` | Read the candidate profile |
+| PUT | `/api/candidate` | Update the candidate profile |
+| GET | `/api/jobs` | List manually added jobs |
+| POST | `/api/jobs` | Add a job description |
+| POST | `/api/jobs/{id}/analyze` | Extract known job keywords |
+| POST | `/api/jobs/{id}/match` | Calculate the deterministic match result |
 
-Example profile update:
+Example job creation:
 
 ```powershell
-$profile = Invoke-RestMethod http://localhost:8080/api/candidate
-$profile.full_name = 'Your verified name'
-$profile | ConvertTo-Json -Depth 8 | Invoke-RestMethod http://localhost:8080/api/candidate -Method Put -ContentType 'application/json'
+$job = @{ company = 'ExampleCo'; title = 'Backend Software Engineer'; location = 'Remote US'; application_url = 'https://jobs.example.com/backend-engineer'; description = 'Build Go microservices using Kafka, MySQL, Docker, and REST APIs.' } | ConvertTo-Json
+Invoke-RestMethod http://localhost:8080/api/jobs -Method Post -ContentType 'application/json' -Body $job
 ```
 
-## Security and approval model
+## Match scoring
 
-Secrets belong only in `.env` or a secret manager; they are never committed. The future browser service must stop on CAPTCHA, MFA, authentication, access restrictions, unknown questions, and high-risk questions. It will not submit applications automatically: the path is **prepare → notify → human review → manual final submission**.
+Scoring is deterministic; an LLM does not choose the score.
+
+| Dimension | Weight |
+| --- | --- |
+| Required technical skills | 30% |
+| Relevant experience/role | 25% |
+| Architecture/domain | 10% |
+| Location/work arrangement | 5% |
+| Responsibilities | 15% |
+| Years of experience | 10% |
+| Education | 5% |
+
+Thresholds: 90–100 `STRONG APPLY`, 80–89 `APPLY`, 70–79 `REVIEW`, below 70 `SKIP`.
+
+## Generated application files
+
+Set `RESUME_OUTPUT_DIR` in `.env`. The default creates this layout:
+
+```text
+C:\Users\Rk\Documents\Resumes\_FT\
+  Company_Name\
+    Company_Name_Backend_Engineer_YYYYMMDD_Resume.docx
+    Company_Name_Backend_Engineer_YYYYMMDD_Resume.pdf
+    Company_Name_Backend_Engineer_YYYYMMDD_Cover_Letter.docx
+    Company_Name_Backend_Engineer_YYYYMMDD_Cover_Letter.pdf
+```
+
+The storage path is implemented. Actual document generation is the next Phase 3 feature and will validate each claim against the candidate profile before saving a file.
 
 ## Testing
 
-Run `make test`. The current unit tests cover candidate profile versioning and API health/profile retrieval. Expand them in each phase with the required matching, validation, state-machine, database, and mock-browser tests.
+Run `make test` for the Go suite and `go vet ./...` for static checks.
+
+## Security
+
+- Never commit `.env`, credentials, session cookies, tokens, or API keys.
+- Use environment variables or a secret manager for configuration.
+- Do not log passwords, authentication data, or sensitive application answers.
+- Preserve human review before every final application submission.
