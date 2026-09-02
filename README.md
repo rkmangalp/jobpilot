@@ -30,16 +30,19 @@ The future browser workflow will never bypass CAPTCHA, MFA, bot detection, authe
 
 | Area | Technology |
 | --- | --- |
-| Backend API and workflow logic | Go |
-| Database schema | MySQL 8 |
+| Backend API and workflow logic | Go + Gin |
+| Database schema and repositories | MySQL 8 + Pop |
 | Frontend | React (TypeScript migration planned) |
 | Local services | Docker Compose |
-| Future async workflows | Kafka |
+| Future async workflows | Kafka + franz-go |
 | Future caching and locks | Redis |
 | Browser preparation | Playwright (future, compliant use only) |
+| Tests | Go test + Ginkgo/Gomega |
 | Observability | Structured logs and Prometheus metrics |
 
 JobPilot is a modular monolith: packages have clear boundaries today and can be extracted into services only when that complexity is justified.
+
+Gin owns HTTP routing and middleware. Pop is used for future MySQL connection/repository work; Buffalo is intentionally not used because its full-stack conventions overlap with this separate Go API and React frontend. franz-go is isolated behind an event publisher interface and does not connect to Kafka until `KAFKA_BROKERS` is configured.
 
 ## Current implementation status
 
